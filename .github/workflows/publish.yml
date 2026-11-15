@@ -1,0 +1,88 @@
+name: Publish npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to publish (for example v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  # Required for npm Trusted Publishing (OIDC) and provenance.
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # npm Trusted Publishing requires Node.js 22.14.0 or newer.
+          node-version: 22.19.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Use npm 11
+        # Trusted Publishing requires npm 11.5.1 or newer. npm 12 requires a
+        # newer Node.js than the Node 22.19 baseline used here.
+        run: npm install -g npm@11
+
+      - name: Run tests
+        # The package has no dependencies, so there is nothing to install first.
+        run: npm test
+
+      - name: Check that the tag matches the package version
+        id: version
+        env:
+          REF: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [ "v${VERSION}" != "${REF}" ]; then
+            echo "::error::tag ${REF} does not match package version ${VERSION}"
+            exit 1
+          fi
+
+      - name: Check whether this version is already on npm
+        id: published
+        env:
+          PACKAGE: "@hexiaowu/dsh-mcp-config"
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "${PACKAGE}@${VERSION} is already published; skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "${PACKAGE}@${VERSION} is not published yet."
+          fi
+
+      # Configure Trusted Publishing once on npm:
+      #   Package settings -> Trusted Publisher -> GitHub Actions
+      #   owner: hexiaowu
+      #   repository: dsh-mcp-config
+      #   workflow filename: publish.yml
+      #   environment: leave blank
+      #
+      # Trusted Publishing uses GitHub OIDC, so no NPM_TOKEN is needed, and
+      # npm attaches provenance automatically. `publishConfig.access` in
+      # package.json already makes this scoped package public.
+      - name: Publish to npm
+        if: steps.published.outputs.exists == 'false'
+        run: npm publish --access public

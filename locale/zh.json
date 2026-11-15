@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP 配置",
+    "description": "集中管理 DSH 的 MCP 连接，并从 Claude Code、Codex、Gemini CLI、ZCode 等工具导入已有的 MCP 配置。"
+  }
+}

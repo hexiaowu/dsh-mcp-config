@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MCP Config">
+  <defs>
+    <linearGradient id="mcpcfg-bg" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f7cf6"/>
+      <stop offset="1" stop-color="#1648a8"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#mcpcfg-bg)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round">
+    <path d="M12 21h7"/>
+    <path d="M33 21h19"/>
+    <path d="M12 32h19"/>
+    <path d="M46 32h6"/>
+    <path d="M12 43h4"/>
+    <path d="M30 43h22"/>
+    <circle cx="26" cy="21" r="4"/>
+    <circle cx="39" cy="32" r="4"/>
+    <circle cx="23" cy="43" r="4"/>
+  </g>
+</svg>

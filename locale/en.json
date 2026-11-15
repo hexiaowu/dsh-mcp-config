@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP Config",
+    "description": "Manage DSH MCP connections and import MCP servers already configured in Claude Code, Codex, Gemini CLI, ZCode, and other tools."
+  }
+}

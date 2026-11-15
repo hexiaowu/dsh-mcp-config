@@ -1,0 +1,66 @@
+{
+  "name": "@hexiaowu/dsh-mcp-config",
+  "version": "0.1.0",
+  "description": "MCP Config for DeepSeek Harness: manage DSH MCP connections and import MCP servers configured in other agents and IDEs, including ZCode",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "model-context-protocol",
+    "settings"
+  ],
+  "homepage": "https://github.com/hexiaowu/dsh-mcp-config#readme",
+  "bugs": {
+    "url": "https://github.com/hexiaowu/dsh-mcp-config/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hexiaowu/dsh-mcp-config.git"
+  },
+  "license": "MIT",
+  "author": "hexiaowu <hexiaowu1993@gmail.com>",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "locale/*.json",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
