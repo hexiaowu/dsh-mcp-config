@@ -9,6 +9,14 @@ window.__ModuleLoader__.load({
     const NS = 'mcp-config'
     const RPC_CHANNEL = '/api'
     const RPC_ENDPOINT = 'mcp-config.rpc'
+    /** Longest a mutation may keep its own control marked busy (see `withPending`). */
+    const MUTATION_LOCK_MS = 20000
+    /**
+     * Quiet window before a toggle write leaves for the Host. A profile write
+     * restarts this plugin, so a double click inside this window collapses into
+     * one write (or none at all when the user lands back on the original state).
+     */
+    const TOGGLE_SETTLE_MS = 150
 
     const zh = {
       nav: 'MCP 配置',
@@ -78,8 +86,8 @@ window.__ModuleLoader__.load({
       'form.timeout': '单次调用超时（毫秒）',
       'form.failFast': '启动失败时拒绝激活',
       'form.failFastHint': '默认关闭：服务器不可用时只影响它自己的工具，不影响 DSH 启动。',
-      'form.disabled': '暂时停用',
-      'form.disabledHint': '保留配置，但不连接、不注册工具。',
+      'form.enabled': '启用',
+      'form.enabledHint': '关闭后保留配置，但不连接、不注册工具。',
       close: '关闭',
       'form.cancel': '取消',
       'form.save': '保存',
@@ -95,9 +103,8 @@ window.__ModuleLoader__.load({
       'toast.added': '已添加「{name}」',
       'toast.updated': '已更新「{name}」',
       'toast.removed': '已删除「{name}」',
-      'toast.enabled': '已启用「{name}」',
-      'toast.disabled': '已停用「{name}」',
       'toast.refreshFailed': '已保存，但刷新列表失败：{message}',
+      'toast.slow': 'Host 响应超时，已重新读取配置。',
       'error.invalid-name': '名称不合法：只能包含字母、数字、下划线和短横线，最长 32 位。',
       'error.duplicate-name': '名称「{name}」已被占用，请换一个。',
       'error.unsupported-transport': '这个 MCP 使用 DSH 不支持的传输方式（例如 SSE），无法直接导入。',
@@ -111,6 +118,7 @@ window.__ModuleLoader__.load({
       'error.mcp-module-unavailable': '无法加载 @deepseek-ai/dsh-mcp-client，已配置的 MCP 不会启动。',
       'error.unknown-endpoint': '插件版本不匹配，请重新加载页面。',
       'error.internal': '操作失败：{message}',
+      'error.timeout': 'Host 没有响应（超时），已重新读取配置。',
       'client.name': '名称不合法：只能包含字母、数字、下划线和短横线，最长 32 位。',
       'client.command': '请填写启动命令。',
       'client.url': '请填写以 http:// 或 https:// 开头的服务地址。',
@@ -186,8 +194,8 @@ window.__ModuleLoader__.load({
       'form.timeout': 'Per-call timeout (ms)',
       'form.failFast': 'Refuse activation if startup fails',
       'form.failFastHint': 'Off by default: an unavailable server only loses its own tools and does not block DSH startup.',
-      'form.disabled': 'Temporarily disabled',
-      'form.disabledHint': 'Keep the configuration without connecting or registering tools.',
+      'form.enabled': 'Enabled',
+      'form.enabledHint': 'Turn this off to keep the configuration without connecting or registering tools.',
       close: 'Close',
       'form.cancel': 'Cancel',
       'form.save': 'Save',
@@ -203,9 +211,8 @@ window.__ModuleLoader__.load({
       'toast.added': 'Added “{name}”',
       'toast.updated': 'Updated “{name}”',
       'toast.removed': 'Deleted “{name}”',
-      'toast.enabled': 'Enabled “{name}”',
-      'toast.disabled': 'Disabled “{name}”',
       'toast.refreshFailed': 'Saved, but the list could not be refreshed: {message}',
+      'toast.slow': 'The Host did not answer in time; the configuration was re-read.',
       'error.invalid-name': 'Invalid name: use letters, digits, underscores, and hyphens, up to 32 characters.',
       'error.duplicate-name': 'The name “{name}” is already in use. Choose another one.',
       'error.unsupported-transport': 'This MCP server uses a transport DSH does not support (for example SSE) and cannot be imported directly.',
@@ -219,6 +226,7 @@ window.__ModuleLoader__.load({
       'error.mcp-module-unavailable': 'Could not load @deepseek-ai/dsh-mcp-client; configured MCP servers will not start.',
       'error.unknown-endpoint': 'Plugin version mismatch. Reload the page.',
       'error.internal': 'Operation failed: {message}',
+      'error.timeout': 'The Host did not answer (timed out); the configuration was re-read.',
       'client.name': 'Invalid name: use letters, digits, underscores, and hyphens, up to 32 characters.',
       'client.command': 'Enter a command.',
       'client.url': 'Enter a server URL starting with http:// or https://.',
@@ -252,6 +260,7 @@ window.__ModuleLoader__.load({
 .mcpcfg-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .mcpcfg-tag{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:18px;white-space:nowrap}
 .mcpcfg-tag-ok{color:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-state-success-tertiary,var(--dsw-alias-bg-layer-2))}
+.mcpcfg-tag-info{color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-tertiary,var(--dsw-alias-bg-layer-2))}
 .mcpcfg-tag-warn{color:var(--dsw-alias-state-warn-label,var(--dsw-alias-label-secondary));background:var(--dsw-alias-state-warn-tertiary,var(--dsw-alias-bg-layer-2))}
 .mcpcfg-tag-error{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-state-error-secondary,var(--dsw-alias-bg-layer-2))}
 .mcpcfg-tag-muted{opacity:.8}
@@ -263,11 +272,13 @@ window.__ModuleLoader__.load({
 .mcpcfg-btn-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover,var(--dsw-alias-state-business-primary))}
 .mcpcfg-btn-danger{color:var(--dsw-alias-state-error-primary)}
 .mcpcfg-btn-danger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger,var(--dsw-alias-interactive-bg-hover))}
-.mcpcfg-switch{position:relative;width:32px;height:18px;border:0;border-radius:9px;background:var(--dsw-alias-fill-l2,var(--dsw-alias-bg-layer-3));cursor:pointer;padding:0;flex:none}
+.mcpcfg-switch{box-sizing:border-box;position:relative;display:inline-flex;align-items:center;flex:0 0 auto;width:36px;height:20px;padding:2px;border:0;border-radius:999px;background:var(--dsw-alias-border-l3,#0000001f);cursor:pointer;transition:background-color .12s ease}
+.mcpcfg-switch[aria-checked="true"]{background:var(--dsw-alias-state-business-primary,var(--dsw-alias-button-info-fill,#4176e6))}
+.mcpcfg-switch:disabled{cursor:not-allowed;opacity:.5}
 .mcpcfg-switch:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
-.mcpcfg-switch[data-on="true"]{background:var(--dsw-alias-state-business-primary)}
-.mcpcfg-switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--dsw-alias-label-primary-foreground,#fff);transition:transform .15s ease}
-.mcpcfg-switch[data-on="true"]::after{transform:translateX(14px)}
+.mcpcfg-switch-thumb{display:block;flex:none;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-label-primary-foreground,#fff);transition:transform .12s ease}
+.mcpcfg-switch[aria-checked="false"] .mcpcfg-switch-thumb{background:var(--dsw-alias-switch-thumb,var(--dsw-alias-label-primary-foreground,#fff))}
+.mcpcfg-switch[aria-checked="true"] .mcpcfg-switch-thumb{transform:translateX(16px)}
 .mcpcfg-empty{border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;padding:18px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:19px}
 .mcpcfg-group{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden;contain:content}
 .mcpcfg-group-head{display:flex;align-items:center;gap:9px;padding:10px 12px;cursor:pointer;border:0;background:transparent;color:inherit;font:inherit;text-align:left;width:100%}
@@ -303,9 +314,9 @@ window.__ModuleLoader__.load({
 .mcpcfg-segment{display:inline-flex;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden;width:fit-content}
 .mcpcfg-segment button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:5px 12px;cursor:pointer}
 .mcpcfg-segment button[data-active="true"]{background:var(--dsw-alias-state-business-tertiary,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-weight:500}
-.mcpcfg-check{display:flex;align-items:flex-start;gap:8px}
-.mcpcfg-check input{margin:2px 0 0}
-.mcpcfg-check-text{display:flex;flex-direction:column;gap:2px}
+.mcpcfg-toggle{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:9px 11px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.mcpcfg-toggle-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mcpcfg-toggle .mcpcfg-switch{margin-top:1px}
 .mcpcfg-note{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:8px 10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:11.5px;line-height:17px}
 .mcpcfg-toast{position:fixed;right:22px;bottom:22px;z-index:1300;max-width:360px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-popover,0 10px 28px rgba(0,0,0,.22));padding:9px 12px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary);display:flex;gap:8px;align-items:flex-start}
 .mcpcfg-toast[data-tone="error"]{color:var(--dsw-alias-state-error-primary)}
@@ -313,6 +324,7 @@ window.__ModuleLoader__.load({
 .mcpcfg-spin{width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:mcpcfg-spin .8s linear infinite}
 @keyframes mcpcfg-spin{to{transform:rotate(360deg)}}
 @media (max-width:620px){.mcpcfg-dialog{top:4vh;max-height:90vh;width:calc(100vw - 24px)}.mcpcfg-dialog-grid{grid-template-columns:1fr}.mcpcfg-card,.mcpcfg-source-row{flex-direction:column}.mcpcfg-actions{justify-content:flex-start}.mcpcfg-group-path{display:none}}
+@media (prefers-reduced-motion:reduce){.mcpcfg-switch,.mcpcfg-switch-thumb{transition:none}}
 `
 
     /** Replace `{name}` placeholders in a localized string. */
@@ -390,6 +402,8 @@ window.__ModuleLoader__.load({
       let toastTimer
       let toolRefreshTimer
       const listeners = new Set()
+      /** id → { desired, confirmed, running }: the switch write queue. */
+      const toggleState = new Map()
 
       function emit() {
         for (const listener of [...listeners]) listener()
@@ -410,12 +424,142 @@ window.__ModuleLoader__.load({
       function pending(key) {
         return snapshot.pending.includes(key)
       }
+      /**
+       * Mark one operation as in flight, scoped to its own key. The key is
+       * released when the task settles, and at the latest after the UI timeout:
+       * writing profile configuration restarts this plugin's Host fiber, so a
+       * request that outlives that restart must not freeze a control forever.
+       */
       async function withPending(key, task) {
+        if (snapshot.pending.includes(key)) return undefined
         set({ pending: [...snapshot.pending, key] })
+        let released = false
+        const release = () => {
+          if (released) return
+          released = true
+          set({ pending: snapshot.pending.filter((item) => item !== key) })
+        }
+        const timer = setTimeout(() => {
+          release()
+          if (disposed) return
+          // The answer may simply have been lost in the restart: reconcile with
+          // whatever the Host actually recorded instead of trusting the guess.
+          showToast(t('toast.slow'), 'error')
+          load(false, false).catch(() => {})
+        }, MUTATION_LOCK_MS)
+        if (timer && typeof timer.unref === 'function') timer.unref()
         try {
           return await task()
         } finally {
-          set({ pending: snapshot.pending.filter((item) => item !== key) })
+          clearTimeout(timer)
+          release()
+        }
+      }
+
+      /** Apply one row's new state locally so a click never waits for a refetch. */
+      function patchManaged(id, patch) {
+        const data = snapshot.data
+        if (!data || !Array.isArray(data.managed)) return
+        set({
+          data: {
+            ...data,
+            managed: data.managed.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+          },
+        })
+      }
+
+      /** Whether a managed row still exists in the current list. */
+      function stillManaged(id) {
+        const data = snapshot.data
+        return Boolean(data && Array.isArray(data.managed) && data.managed.some((row) => row.id === id))
+      }
+
+      /** The visible row state for an intended `enabled` value. */
+      function enabledPatch(enabled) {
+        return {
+          disabled: !enabled,
+          status: enabled ? 'enabled' : 'disabled',
+          // Tools register only after the (re)mount finishes; the quiet refresh
+          // fills the real count back in.
+          toolCount: 0,
+        }
+      }
+
+      /** The `update` payload for one server at an intended `enabled` value. */
+      function togglePayload(server, enabled) {
+        return {
+          name: server.name,
+          transport: server.transport,
+          command: server.command,
+          args: server.args,
+          env: server.env,
+          cwd: server.cwd,
+          url: server.url,
+          headers: server.headers,
+          toolCallTimeoutMs: server.toolCallTimeoutMs,
+          failOnStartupError: server.failOnStartupError,
+          disabled: !enabled,
+        }
+      }
+
+      /** Reject with a translated Host-timeout failure instead of waiting forever. */
+      function withTimeout(promise, ms) {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            const error = new Error('Host timeout')
+            error.code = 'mcp-config/timeout'
+            reject(error)
+          }, ms)
+          if (timer && typeof timer.unref === 'function') timer.unref()
+          Promise.resolve(promise).then(
+            (value) => {
+              clearTimeout(timer)
+              resolve(value)
+            },
+            (error) => {
+              clearTimeout(timer)
+              reject(error)
+            },
+          )
+        })
+      }
+
+      /**
+       * Drive one server's switch to its newest intent. Clicks only record a
+       * new `desired` value; this loop is the single writer, so a burst of
+       * clicks costs one write (or none) instead of being dropped.
+       */
+      async function flushToggle(id, server) {
+        const state = toggleState.get(id)
+        if (state === undefined) return
+        let wrote = false
+        for (;;) {
+          try {
+            while (state.desired !== state.confirmed) {
+              const target = state.desired
+              if (TOGGLE_SETTLE_MS > 0) await sleep(TOGGLE_SETTLE_MS)
+              // A newer click may have replaced the intent while we waited.
+              if (state.desired !== target) continue
+              await withTimeout(api.call('update', { id, server: togglePayload(server, target) }), MUTATION_LOCK_MS)
+              state.confirmed = target
+              wrote = true
+            }
+          } catch (error) {
+            const timedOut = error && error.code === 'mcp-config/timeout'
+            state.desired = state.confirmed
+            patchManaged(id, enabledPatch(state.confirmed))
+            // The row may have been deleted while this write was in flight;
+            // reporting a failure for a gone server would only confuse.
+            if (stillManaged(id)) showToast(errorText(t, error), 'error')
+            // A timed-out write may still have landed; let the Host decide.
+            if (timedOut) load(false, false).catch(() => {})
+            break
+          }
+          if (wrote) await refreshAfterMutation()
+          if (state.desired === state.confirmed) break
+          // Clicks that arrived during the refresh become the next write.
+          patchManaged(id, enabledPatch(state.desired))
+          wrote = false
         }
       }
 
@@ -636,7 +780,14 @@ window.__ModuleLoader__.load({
           set({ confirm: null })
         },
         async remove(server) {
-          return withPending('remove', async () => {
+          // Any switch intent still queued for this server is moot once it is
+          // deleted: drop it so no late write can race the removal.
+          const queued = toggleState.get(server.id)
+          if (queued !== undefined) {
+            queued.desired = queued.confirmed
+            toggleState.delete(server.id)
+          }
+          return withPending(`remove:${server.id}`, async () => {
             try {
               await api.call('remove', { id: server.id })
               set({ confirm: null })
@@ -649,30 +800,27 @@ window.__ModuleLoader__.load({
         },
         async setEnabled(server) {
           set({ confirm: null })
-          const key = `toggle:${server.id}`
-          return withPending(key, async () => {
-            try {
-              const enabled = server.disabled === true
-              const payload = {
-                name: server.name,
-                transport: server.transport,
-                command: server.command,
-                args: server.args,
-                env: server.env,
-                cwd: server.cwd,
-                url: server.url,
-                headers: server.headers,
-                toolCallTimeoutMs: server.toolCallTimeoutMs,
-                failOnStartupError: server.failOnStartupError,
-                disabled: !enabled,
-              }
-              await api.call('update', { id: server.id, server: payload })
-              showToast(format(t(enabled ? 'toast.enabled' : 'toast.disabled'), { name: server.name }))
-              await refreshAfterMutation()
-            } catch (error) {
-              showToast(errorText(t, error), 'error')
-            }
-          })
+          const id = server.id
+          const key = `toggle:${id}`
+          let state = toggleState.get(id)
+          if (state === undefined) {
+            const current = server.disabled !== true
+            state = { desired: current, confirmed: current, running: false }
+            toggleState.set(id, state)
+          }
+          // Every click lands immediately: flip the row, then record the intent.
+          state.desired = !state.desired
+          patchManaged(id, enabledPatch(state.desired))
+          if (state.running) return undefined
+          state.running = true
+          set({ pending: [...snapshot.pending.filter((item) => item !== key), key] })
+          try {
+            await flushToggle(id, server)
+          } finally {
+            state.running = false
+            if (state.desired === state.confirmed) toggleState.delete(id)
+            set({ pending: snapshot.pending.filter((item) => item !== key) })
+          }
         },
         async importSource(server) {
           const key = `import:${server.key}`
@@ -725,8 +873,37 @@ window.__ModuleLoader__.load({
     }
 
     function Tag({ children, tone }) {
-      const toneClass = tone === 'ok' ? ' mcpcfg-tag-ok' : tone === 'warn' ? ' mcpcfg-tag-warn' : tone === 'error' ? ' mcpcfg-tag-error' : ''
+      const toneClass = tone === 'ok'
+        ? ' mcpcfg-tag-ok'
+        : tone === 'info'
+          ? ' mcpcfg-tag-info'
+          : tone === 'warn'
+            ? ' mcpcfg-tag-warn'
+            : tone === 'error'
+              ? ' mcpcfg-tag-error'
+              : ''
       return h('span', { className: 'mcpcfg-tag' + toneClass }, children)
+    }
+
+    /**
+     * The one switch used everywhere on this page. Metrics mirror the DSH
+     * `ui-primitives` switch; the "on" color is the product blue so an enabled
+     * server reads the same way as its blue status tag.
+     */
+    function Switch({ checked, onChange, label, title, disabled, busy }) {
+      return h('button', {
+        type: 'button',
+        role: 'switch',
+        className: 'mcpcfg-switch',
+        'aria-checked': checked === true ? 'true' : 'false',
+        'aria-label': label,
+        'aria-busy': busy === true ? 'true' : undefined,
+        title: title || label,
+        disabled: disabled === true,
+        // Clicks are never swallowed: the controller records the newest intent
+        // and collapses the writes, so a fast second click still lands.
+        onClick: () => { onChange(checked !== true) },
+      }, h('span', { className: 'mcpcfg-switch-thumb' }))
     }
 
     function Banner({ tone, children, action }) {
@@ -738,13 +915,18 @@ window.__ModuleLoader__.load({
     }
 
     function ManagedRow({ server, controller, t }) {
-      const pending = controller.getSnapshot().pending
-      const busy = pending.length > 0
+      const snapshot = controller.getSnapshot()
+      const pending = snapshot.pending
+      const canWrite = snapshot.data?.diagnostics?.canWrite === true
+      // Only this row's own operations gate this row; another server's toggle
+      // must never disable the whole list.
+      const toggling = pending.includes(`toggle:${server.id}`)
+      const removing = pending.includes(`remove:${server.id}`)
       const statusTag = server.status === 'disabled'
         ? h(Tag, { tone: 'warn' }, t('status.disabled'))
         : server.status === 'error'
           ? h(Tag, { tone: 'error' }, t('status.error'))
-          : h(Tag, { tone: 'ok' }, t('status.enabled'))
+          : h(Tag, { tone: 'info' }, t('status.enabled'))
       return h('div', { className: 'mcpcfg-card' },
         h('div', { className: 'mcpcfg-card-main' },
           h('div', { className: 'mcpcfg-card-title' },
@@ -763,27 +945,23 @@ window.__ModuleLoader__.load({
           ),
         ),
         h('div', { className: 'mcpcfg-actions' },
-          h('button', {
-            type: 'button',
-            className: 'mcpcfg-switch',
-            role: 'switch',
-            'aria-checked': server.disabled ? 'false' : 'true',
-            'aria-label': t(server.disabled ? 'enable' : 'disable'),
-            title: t(server.disabled ? 'enable' : 'disable'),
-            'data-on': server.disabled ? 'false' : 'true',
-            disabled: busy || !controller.getSnapshot().data?.diagnostics?.canWrite,
-            onClick: () => { controller.setEnabled(server) },
+          h(Switch, {
+            checked: server.disabled !== true,
+            label: t(server.disabled ? 'enable' : 'disable'),
+            busy: toggling,
+            disabled: removing || !canWrite,
+            onChange: () => { controller.setEnabled(server) },
           }),
           h('button', {
             type: 'button',
             className: 'mcpcfg-btn',
-            disabled: busy || !controller.getSnapshot().data?.diagnostics?.canWrite,
+            disabled: removing || !canWrite,
             onClick: () => { controller.openEditor(server) },
           }, t('edit')),
           h('button', {
             type: 'button',
             className: 'mcpcfg-btn mcpcfg-btn-danger',
-            disabled: busy || !controller.getSnapshot().data?.diagnostics?.canWrite,
+            disabled: removing || !canWrite,
             onClick: () => { controller.openConfirm(server) },
           }, t('delete')),
         ),
@@ -810,8 +988,8 @@ window.__ModuleLoader__.load({
 
     function SourceRow({ server, controller, t }) {
       const pending = controller.getSnapshot().pending
-      const busy = pending.length > 0
       const importKey = `import:${server.key}`
+      const busy = pending.includes(importKey)
       const blocked = server.imported || server.unsupported !== ''
       let label = t('import.action')
       if (server.imported) label = t('import.imported')
@@ -895,7 +1073,6 @@ window.__ModuleLoader__.load({
       const managed = data ? data.managed : []
       const profileRows = data ? data.profileRows : []
       const dshCount = managed.length + profileRows.length
-      const busy = snapshot.pending.length > 0
       const externalCount = groups.reduce((sum, group) => sum + (group.servers ? group.servers.length : 0), 0)
       const scannedAt = data?.diagnostics?.scannedAt ? formatDateTime(data.diagnostics.scannedAt) : ''
 
@@ -909,13 +1086,13 @@ window.__ModuleLoader__.load({
             h('button', {
               type: 'button',
               className: 'mcpcfg-btn',
-              disabled: snapshot.refreshing || busy,
+              disabled: snapshot.refreshing,
               onClick: () => { controller.rescan() },
             }, snapshot.refreshing ? h(Spinner) : null, t('refresh')),
             h('button', {
               type: 'button',
               className: 'mcpcfg-btn mcpcfg-btn-primary',
-              disabled: !canEdit || busy,
+              disabled: !canEdit,
               onClick: () => { controller.openEditor(null) },
             }, t('add')),
           ),
@@ -1015,6 +1192,16 @@ window.__ModuleLoader__.load({
           h('span', { className: 'mcpcfg-label' }, label),
           control,
           hint ? h('span', { className: 'mcpcfg-hint' }, hint) : null,
+        )
+      }
+      /** A labelled on/off row that uses the same switch as the server list. */
+      function toggleRow({ label, hint, checked, onChange, disabled }) {
+        return h('div', { className: 'mcpcfg-toggle mcpcfg-span-2' },
+          h('div', { className: 'mcpcfg-toggle-text' },
+            h('span', { className: 'mcpcfg-label' }, label),
+            hint ? h('span', { className: 'mcpcfg-hint' }, hint) : null,
+          ),
+          h(Switch, { checked, label, disabled, onChange }),
         )
       }
       const stdio = draft.transport === 'stdio'
@@ -1125,32 +1312,20 @@ window.__ModuleLoader__.load({
                 onChange: (event) => update({ timeout: event.target.value }),
               }), null),
             ),
-            h('div', { className: 'mcpcfg-field' },
-              h('label', { className: 'mcpcfg-check' },
-                h('input', {
-                  type: 'checkbox',
-                  checked: draft.failOnStartup === true,
-                  onChange: (event) => update({ failOnStartup: event.target.checked }),
-                }),
-                h('span', { className: 'mcpcfg-check-text' },
-                  h('span', { className: 'mcpcfg-label' }, t('form.failFast')),
-                  h('span', { className: 'mcpcfg-hint' }, t('form.failFastHint')),
-                ),
-              ),
-            ),
-            mode === 'edit' ? h('div', { className: 'mcpcfg-field' },
-              h('label', { className: 'mcpcfg-check' },
-                h('input', {
-                  type: 'checkbox',
-                  checked: draft.disabled === true,
-                  onChange: (event) => update({ disabled: event.target.checked }),
-                }),
-                h('span', { className: 'mcpcfg-check-text' },
-                  h('span', { className: 'mcpcfg-label' }, t('form.disabled')),
-                  h('span', { className: 'mcpcfg-hint' }, t('form.disabledHint')),
-                ),
-              ),
-            ) : null,
+            toggleRow({
+              label: t('form.failFast'),
+              hint: t('form.failFastHint'),
+              checked: draft.failOnStartup === true,
+              disabled: saving,
+              onChange: (next) => update({ failOnStartup: next }),
+            }),
+            mode === 'edit' ? toggleRow({
+              label: t('form.enabled'),
+              hint: t('form.enabledHint'),
+              checked: draft.disabled !== true,
+              disabled: saving,
+              onChange: (next) => update({ disabled: !next }),
+            }) : null,
             h('div', { className: 'mcpcfg-note mcpcfg-span-2' }, t('form.secretsNote')),
           ),
         ),
@@ -1171,7 +1346,7 @@ window.__ModuleLoader__.load({
     }
 
     function ConfirmDialog({ controller, t, server }) {
-      const deleting = controller.getSnapshot().pending.includes('remove')
+      const deleting = controller.getSnapshot().pending.includes(`remove:${server.id}`)
       const cancelRef = React.useRef(null)
       React.useEffect(() => {
         if (cancelRef.current && typeof cancelRef.current.focus === 'function') cancelRef.current.focus()
@@ -1280,8 +1455,12 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale', 'connection'],
       apply,
-      // Test-only access to the view components; the module loader ignores it.
-      __components: { Page, ManagedRow, ProfileRow, SourceRow, SourceGroup, ServerDialog, ConfirmDialog, Toast },
+      // Test-only access to the view components, controller factory, and stylesheet;
+      // the module loader ignores all of it.
+      __components: { Page, ManagedRow, ProfileRow, SourceRow, SourceGroup, ServerDialog, ConfirmDialog, Toast, Switch },
+      __internals: { createApi, createController },
+      __limits: { mutationLockMs: MUTATION_LOCK_MS, toggleSettleMs: TOGGLE_SETTLE_MS },
+      __css: CSS,
     }
   },
 })
