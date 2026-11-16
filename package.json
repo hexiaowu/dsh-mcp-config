@@ -1,6 +1,6 @@
 {
   "name": "@hexiaowu/dsh-mcp-config",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP Config for DeepSeek Harness: manage DSH MCP connections and import MCP servers configured in other agents and IDEs, including ZCode",
   "keywords": [
     "dsh",
